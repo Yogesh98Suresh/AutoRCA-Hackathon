@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1120">
+  <title>AutoRCA | Incident console</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/dashboard" aria-label="AutoRCA home"><span class="brand-icon">A</span><span>Auto<span class="brand-accent">RCA</span><small>INCIDENT CONSOLE</small></span></a>
+      <div class="topbar-right"><span class="status-dot"></span><span>Analyzer online</span><a class="api-link" href="/docs" target="_blank" rel="noreferrer">API docs ↗</a></div>
+    </header>
+    <main>
+      <section class="hero">
+        <div><p class="eyebrow">SYSTEM HEALTH / LOG INTELLIGENCE</p><h1>Make sense of the noise.</h1><p class="hero-copy">Turn service logs into explainable incidents and a human-reviewed investigation plan.</p></div>
+        <form id="analyze-form" class="source-card"><label for="log-file">Log source</label><div class="source-row"><select id="log-file" required aria-label="Choose a log file"></select><button id="analyze-button" class="button primary" type="submit">Analyze logs <span>↗</span></button></div><p class="source-note">Choose a .log file from the local data folder.</p></form>
+      </section>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <section class="metrics" aria-label="Log summary">
+        <article class="metric-card"><span class="metric-label">LINES SCANNED</span><strong id="metric-lines">—</strong><span class="metric-foot">Nonblank entries</span></article>
+        <article class="metric-card"><span class="metric-label">ACTIVE INCIDENTS</span><strong id="metric-incidents">—</strong><span class="metric-foot">Grouped by service</span></article>
+        <article class="metric-card"><span class="metric-label">MALFORMED LINES</span><strong id="metric-malformed">—</strong><span class="metric-foot">Could not be parsed</span></article>
+        <article class="metric-card"><span class="metric-label">HIGH SEVERITY</span><strong id="metric-high">—</strong><span class="metric-foot">Heuristic classification</span></article>
+      </section>
+      <section class="content-grid">
+        <div class="panel incidents-panel">
+          <div class="panel-heading"><div><p class="eyebrow">DETECTED FROM LOGS</p><h2>Incidents</h2></div><span id="incident-total" class="count-pill">0</span></div>
+          <div id="incident-list" class="incident-list"><div class="empty-state"><span class="empty-icon">⌁</span><strong>Ready when you are</strong><p>Select a log source and analyze it to see incidents.</p></div></div>
+        </div>
+        <div id="detail-panel" class="panel detail-panel">
+          <div class="detail-empty"><div class="empty-icon large">◎</div><h2>Select an incident</h2><p>Choose an incident to inspect its log evidence, suspected causes, and next steps.</p></div>
+        </div>
+      </section>
+      <footer><span>AutoRCA <span class="muted">· Explainable log analysis</span></span><span class="mock-label"><span></span>Switch: local mock only</span></footer>
+    </main>
+  </div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

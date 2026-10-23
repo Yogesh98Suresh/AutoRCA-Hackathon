@@ -1,0 +1,10 @@
+2026-11-01 10:00:01 INFO auth-service User login successful
+2026-11-01 10:00:03 INFO payment-service Payment request received
+2026-11-01 10:00:04 ERROR payment-service Database connection timeout
+2026-11-01 10:00:05 ERROR payment-service Database connection timeout
+2026-11-01 10:00:06 ERROR payment-service Failed to process payment
+2026-11-01 10:00:08 WARN payment-service Retry limit nearly reached
+2026-11-01 10:00:10 INFO inventory-service Stock check completed
+2026-11-01 10:00:12 ERROR auth-service Authentication database unavailable
+2026-11-01 10:00:14 ERROR inventory-service Upstream stock API timeout after 5 seconds
+this line is malformed and needs attention

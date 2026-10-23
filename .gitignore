@@ -1,0 +1,19 @@
+# Python virtual environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Keep the public demo log, ignore other potentially sensitive logs
+data/*.log
+!data/sample.log
+
+# Local editor and test artifacts
+.vscode/
+.idea/
+.pytest_cache/
