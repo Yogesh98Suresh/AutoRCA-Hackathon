@@ -12,6 +12,7 @@ __pycache__/
 # Keep the public demo log, ignore other potentially sensitive logs
 data/*.log
 !data/sample.log
+data/autorca_switch.sqlite3*
 
 # Local editor and test artifacts
 .vscode/

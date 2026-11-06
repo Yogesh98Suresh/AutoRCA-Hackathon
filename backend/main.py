@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Event, Thread
 from typing import Annotated
 from uuid import uuid4
 
@@ -12,7 +13,9 @@ from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from backend.agent import DeterministicInvestigator, Investigator
 from backend.log_analyzer import LogFileTooLargeError, analyze_logs
-from backend.switch_adapter import LocalSwitchMock
+from backend.switch_adapter import LiveSwitchAdapter, create_switch_adapter
+from backend.switch_client import SwitchEventClient
+from backend.switch_config import SwitchSettings
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -25,8 +28,11 @@ app = FastAPI(
     version="0.2.0",
 )
 investigator: Investigator = DeterministicInvestigator()
-switch_adapter = LocalSwitchMock()
+switch_settings = SwitchSettings.from_env()
+switch_adapter = create_switch_adapter(switch_settings)
 investigations: dict[str, dict] = {}
+switch_worker_stop = Event()
+switch_worker_thread: Thread | None = None
 MAX_INVESTIGATION_MESSAGES = 50
 MAX_DECISION_HISTORY = 100
 MAX_MODIFIED_STEPS = 20
@@ -60,11 +66,33 @@ class DecisionRequest(BaseModel):
     decision: str = Field(min_length=1, max_length=16)
     note: str = Field(default="", max_length=4000)
     modified_steps: list[ModifiedStep] | None = Field(default=None, max_length=MAX_MODIFIED_STEPS)
+    share_with_switch: bool = False
 
     @field_validator("decision", mode="before")
     @classmethod
     def trim_decision(cls, value):
         return value.strip() if isinstance(value, str) else value
+
+
+@app.on_event("startup")
+def start_switch_event_worker():
+    """Start a server-side event reader only when live mode is explicitly enabled."""
+    global switch_worker_thread
+    if isinstance(switch_adapter, LiveSwitchAdapter) and not (switch_worker_thread and switch_worker_thread.is_alive()):
+        switch_adapter.retry_pending()
+        switch_worker_stop.clear()
+        client = SwitchEventClient(switch_settings, switch_adapter.outbox, switch_adapter.handle_event,
+                                   gap_handler=switch_adapter.recover_gap)
+        switch_worker_thread = Thread(target=client.run_forever, args=(switch_worker_stop,),
+                                      name="autorca-switch-events", daemon=True)
+        switch_worker_thread.start()
+
+
+@app.on_event("shutdown")
+def stop_switch_event_worker():
+    switch_worker_stop.set()
+    if switch_worker_thread and switch_worker_thread.is_alive():
+        switch_worker_thread.join(timeout=2)
 
 
 def _log_path(filename: str) -> Path:
@@ -108,7 +136,8 @@ def home():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "project": "AutoRCA"}
+    return {"status": "ok", "project": "AutoRCA",
+            "switch_mode": "live_configured_unverified" if switch_settings.mode == "live" else "mock"}
 
 
 @app.get("/dashboard", include_in_schema=False)
@@ -164,6 +193,8 @@ def create_investigation(request: InvestigationRequest):
             "proposed_steps": list(proposal["proposed_steps"]),
         }],
         "switch_handoff": switch_adapter.create_incident_card(investigation_id, proposal),
+        "switch_delivery": {"status": "not_requested" if isinstance(switch_adapter, LiveSwitchAdapter) else "mock",
+                            "error": ""},
     }
     investigations[investigation_id] = record
     return record
@@ -220,7 +251,31 @@ def record_investigation_decision(investigation_id: str, request: DecisionReques
             raise HTTPException(status_code=400, detail="A modified decision must include non-empty modified_steps.")
         record["proposal"]["proposed_steps"] = list(request.modified_steps)
     _append_decision_history(record, decision, request.note.strip())
+    if decision == "approved" and request.share_with_switch:
+        record["switch_delivery"] = switch_adapter.submit_approved_investigation(
+            investigation_id, record["incident"],
+            f"approved_plan:{len(record['decision_history'])}",
+        )
+    elif decision == "approved" and isinstance(switch_adapter, LiveSwitchAdapter):
+        record["switch_delivery"] = {"status": "not_shared", "error": "No Switch sharing approval was given."}
     return record
+
+
+@app.get("/investigations/{investigation_id}/switch/messages")
+def list_switch_responses(investigation_id: str):
+    if investigations.get(investigation_id) is None:
+        raise HTTPException(status_code=404, detail="Investigation not found.")
+    return {"messages": switch_adapter.list_responses(investigation_id)}
+
+
+@app.get("/investigations/{investigation_id}/switch/status")
+def switch_delivery_status(investigation_id: str):
+    record = investigations.get(investigation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Investigation not found.")
+    if isinstance(switch_adapter, LiveSwitchAdapter):
+        return switch_adapter.delivery_status(investigation_id)
+    return {"status": "mock", "error": "", "recovery_required": False}
 
 
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR / "static"), name="static")

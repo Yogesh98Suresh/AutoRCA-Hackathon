@@ -47,6 +47,16 @@ async function loadFiles() {
   }
 }
 
+async function loadSwitchMode() {
+  const result = await api('/health');
+  const label = document.querySelector('#switch-mode-label');
+  if (label) {
+    label.textContent = result.switch_mode === 'live_configured_unverified'
+      ? 'Switch: live configured · not verified'
+      : 'Switch: local mock only';
+  }
+}
+
 function updateMetrics(report) {
   setMetric('#metric-lines', report.total_lines_analyzed ?? 0);
   setMetric('#metric-incidents', report.incident_count ?? 0);
@@ -157,8 +167,14 @@ function renderInvestigation(content, record) {
   context.append(input, send);
   card.append(context);
   const actions = node('div', 'agent-actions');
+  const shareRow = node('label', 'decision-note');
+  const shareWithSwitch = document.createElement('input');
+  shareWithSwitch.type = 'checkbox';
+  shareWithSwitch.checked = false;
+  shareRow.append(shareWithSwitch, document.createTextNode(' Share minimal incident ID, service, and severity with Switch after approval (no logs or human context).'));
+  if (record.switch_handoff.live_switch_configured) actions.append(shareRow);
   const approve = node('button', 'button primary', 'Approve plan');
-  approve.addEventListener('click', () => submitDecision(record, 'approved'));
+  approve.addEventListener('click', () => submitDecision(record, 'approved', undefined, shareWithSwitch.checked));
   const reject = node('button', 'button danger-button', 'Reject');
   reject.addEventListener('click', () => submitDecision(record, 'rejected'));
   const modify = node('button', 'button outline-button', 'Edit steps');
@@ -166,7 +182,32 @@ function renderInvestigation(content, record) {
   actions.append(approve, reject, modify);
   card.append(actions);
   card.append(node('p', 'decision-note', `Human decision: ${record.decision.status}${record.decision.note ? ` · ${record.decision.note}` : ''}`));
-  card.append(node('p', 'decision-note', `Switch handoff: ${record.switch_handoff.adapter}; live integration: ${record.switch_handoff.live_switch_integration ? 'yes' : 'no'}.`));
+  card.append(node('p', 'decision-note', `Switch handoff: ${record.switch_handoff.adapter}; live integration verified: ${record.switch_handoff.live_switch_integration ? 'yes' : 'no'}.`));
+  if (record.switch_handoff.live_switch_configured && !record.switch_handoff.live_switch_integration) {
+    card.append(node('p', 'decision-note', 'Live mode is configured but has not been verified against this Switch server.'));
+  }
+  if (record.switch_delivery) {
+    card.append(node('p', 'decision-note', `Switch delivery: ${record.switch_delivery.status}${record.switch_delivery.error ? ` · ${record.switch_delivery.error}` : ''}.`));
+  }
+  if (record.switch_handoff.live_switch_configured && record.decision.status === 'approved') {
+    const responseButton = node('button', 'button outline-button', 'Load Switch recommendations');
+    responseButton.type = 'button';
+    responseButton.addEventListener('click', async () => {
+      try {
+        const result = await api(`/investigations/${record.id}/switch/messages`);
+        const delivery = await api(`/investigations/${record.id}/switch/status`);
+        const previous = card.querySelector('.switch-responses');
+        if (previous) previous.remove();
+        const responseList = node('div', 'switch-responses');
+        responseList.append(node('p', 'section-label', 'UNTRUSTED SWITCH RESPONSES · HUMAN REVIEW ONLY'));
+        if (!result.messages.length) responseList.append(node('p', 'decision-note', 'No addressed recommendations received yet.'));
+        for (const message of result.messages) responseList.append(node('p', 'decision-note', `${message.sender}: ${message.content}`));
+        if (delivery.recovery_required) responseList.append(node('p', 'decision-note', 'A Switch event gap was detected. History was checked where supported; reconcile this investigation before relying on a complete response history.'));
+        card.append(responseList);
+      } catch (error) { showNotice(error.message); }
+    });
+    card.append(responseButton);
+  }
   content.append(card);
 }
 
@@ -185,9 +226,9 @@ async function sendContext(record, input) {
   } catch (error) { showNotice(error.message); }
 }
 
-async function submitDecision(record, decision, modifiedSteps) {
+async function submitDecision(record, decision, modifiedSteps, shareWithSwitch = false) {
   try {
-    activeInvestigation = await api(`/investigations/${record.id}/decision`, { method: 'POST', body: JSON.stringify({ decision, note: '', modified_steps: modifiedSteps }) });
+    activeInvestigation = await api(`/investigations/${record.id}/decision`, { method: 'POST', body: JSON.stringify({ decision, note: '', modified_steps: modifiedSteps, share_with_switch: shareWithSwitch }) });
     renderDetail(activeReport.incidents.find(item => item.service === record.service));
   } catch (error) { showNotice(error.message); }
 }
@@ -227,3 +268,7 @@ form.addEventListener('submit', async event => {
 });
 
 loadFiles().catch(error => showNotice(error.message));
+loadSwitchMode().catch(() => {
+  const label = document.querySelector('#switch-mode-label');
+  if (label) label.textContent = 'Switch: status unavailable';
+});

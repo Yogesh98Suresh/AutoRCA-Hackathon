@@ -16,7 +16,7 @@ class ApiRouteTests(unittest.TestCase):
         self.assertEqual(response["status"], "running")
 
     def test_health_and_file_listing_routes(self):
-        self.assertEqual(main.health(), {"status": "ok", "project": "AutoRCA"})
+        self.assertEqual(main.health(), {"status": "ok", "project": "AutoRCA", "switch_mode": "mock"})
         self.assertIn("sample.log", main.list_log_files()["files"])
 
     def test_analyze_route_returns_report_for_data_file(self):

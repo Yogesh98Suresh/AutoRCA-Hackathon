@@ -12,7 +12,8 @@ AutoRCA is a small, explainable system-log analysis demo for the WeMakeDevs **Fl
 - Serves a responsive dashboard from the same FastAPI app.
 - Generates an investigation plan using a provider-independent local interface. It can accept human context, allow the human to approve/reject/edit the plan, and keep that decision in the current server process.
 - Trims and validates human messages. Edited plans allow at most 20 steps of up to 300 characters each. The decision lifecycle is `pending` → `approved`, `rejected`, or `modified`; a `modified` plan may be edited again or approved/rejected. Approved and rejected decisions cannot be changed directly; new human context reopens the investigation to `pending`. Decision history is retained in memory, including timestamps and step snapshots.
-- Provides a **local Switch mock only**. There is no live Switch SDK or integration because verified hackathon integration documentation is not available in this project.
+- Provides an offline Switch mock by default and an opt-in server-side client for the documented Switch agent protocol. Live mode requires an operator-registered agent and stays disabled unless explicitly configured.
+- Sends only an investigation ID, validated service identifier, and severity to Switch, and only after a human checks the separate sharing consent box while approving the plan. Raw logs, evidence, and human context are not sent. Switch replies are stored as untrusted recommendations for human review.
 
 ## Project structure
 
@@ -21,7 +22,11 @@ backend/
   agent.py             Deterministic investigation-plan provider
   log_analyzer.py      Parsing, grouping, severity, cause evidence
   main.py              FastAPI endpoints and validation
-  switch_adapter.py    Local mock boundary; no live Switch calls
+  switch_adapter.py    Mock/live adapter boundary and minimized handoff
+  switch_client.py     Stdlib HTTP/WebSocket protocol client and reconnect loop
+  switch_config.py     Server-only Switch settings and redaction
+  switch_outbox.py     SQLite delivery outbox, stream cursor, and inbound deduplication
+  switch_register.py   Explicit one-time operator registration command
 data/
   sample.log           Public demo log with database, auth, timeout, malformed cases
 frontend/
@@ -33,6 +38,7 @@ tests/
   test_http_api.py    FastAPI status/validation/JSON contract tests
   test_api.py
   test_log_analyzer.py
+  test_switch_integration.py  Mocked Switch HTTP/WebSocket and outbox tests
 ```
 
 ## Windows setup
@@ -45,7 +51,7 @@ cd C:\Users\HP\Desktop\AutoRCA-Hackathon
 python -m pip install -r requirements.txt
 ```
 
-The package versions in `requirements.txt` cover the FastAPI server only. Install into the project virtual environment; do not install globally. No AI provider key is needed. `.env.example` documents the reserved configuration location without containing secrets.
+The package versions in `requirements.txt` cover the FastAPI server only. Switch HTTP/WebSocket support uses the Python standard library; no package was added. No AI provider key is needed. `.env.example` documents configuration names without containing secrets.
 
 The `.env.example` file is a template and is **not loaded automatically**. To override the defaults for one PowerShell session, set the values before starting Uvicorn, for example:
 
@@ -56,6 +62,18 @@ $env:AUTORCA_MAX_MALFORMED_EXAMPLES = '100'
 ```
 
 All three settings must be positive integers. An invalid value prevents the backend from importing and names the invalid setting.
+
+Switch runs in mock mode by default. The `.env.example` file is not auto-loaded. To use live mode, first register an agent once using the documented agent bridge URL and a Switch registration key. In PowerShell, set the bridge URL and one-time registration key, then run:
+
+```powershell
+$env:AUTORCA_SWITCH_AGENT_BASE_URL = 'https://<switch-agent-api-host>'
+$env:AUTORCA_SWITCH_REGISTRATION_API_KEY = '<registration-key>'
+.\.venv\Scripts\python.exe -m backend.switch_register
+```
+
+On Windows, the command stores the returned agent API key in the current user's Windows Credential Manager and prints only the agent ID and credential target name. It deliberately refuses to register on other operating systems until a secure credential-store adapter is provided. Retrieve the key through your approved secret-handling process before setting the server environment; remove the one-time registration key afterward. The integration currently uses the `always_on` registration profile and this deployment-specific choice should be confirmed with the Switch administrator. Live configuration is not proof of connectivity; the dashboard labels it unverified until a real server exchange has been confirmed.
+
+For live mode, set `AUTORCA_SWITCH_MODE=live`, `AUTORCA_SWITCH_AGENT_BASE_URL`, `AUTORCA_SWITCH_AGENT_ID`, `AUTORCA_SWITCH_AGENT_API_KEY`, `AUTORCA_SWITCH_ROOM_ID`, and a stable `AUTORCA_SWITCH_CONNECTION_ID` UUID in the server process environment. Optionally set `AUTORCA_SWITCH_TARGET_AGENT` to the exact responder agent name and `AUTORCA_SWITCH_AGENT_NAME` to AutoRCA's registered name so replies can address it and include the investigation ID. `AUTORCA_SWITCH_OUTBOX_PATH` and `AUTORCA_SWITCH_TIMEOUT_SECONDS` are optional. The SQLite outbox tracks handoff and inbound event state. A shared multi-worker deployment should run only one Switch event worker for a given agent/room connection.
 
 ## Start the application
 
@@ -91,7 +109,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/investigations `
   -Body '{"filename":"sample.log","service":"payment-service","context":"Recent database maintenance"}'
 ```
 
-The response includes the proposal, evidence, mock handoff, a `pending` human decision, and `decision_history`. Unknown investigation IDs return 404; invalid actions return 400; changing a final decision directly returns 409. New human context after approval or rejection reopens the investigation to `pending`, records that transition, and requires review again. The dashboard offers follow-up context and buttons to approve, reject, or edit the proposed steps.
+The response includes the proposal, evidence, handoff metadata, a `pending` human decision, and `decision_history`. Unknown investigation IDs return 404; invalid actions return 400; changing a final decision directly returns 409. New human context after approval or rejection reopens the investigation to `pending`, records that transition, and requires review again. In live mode, approving the plan does not share anything unless the user also checks the explicit Switch sharing consent box. The dashboard shows delivery state and lets the user load addressed Switch recommendations, clearly marked for human review.
 
 ## Run tests
 
@@ -109,13 +127,14 @@ The tests use Python's standard `unittest` and do not require `pytest` or `httpx
 3. Select `payment-service`: the report shows database evidence and its matching timestamps; the cause remains a hypothesis.
 4. Select `inventory-service` to show the timeout hypothesis and troubleshooting recommendation.
 5. Ask the local agent for an investigation plan, add a short human note, then approve, reject, or edit the checks.
-6. Point out the **Switch: local mock only** label. Do not present it as a live integration.
+6. In the default mode, point out the **Switch: local mock only** label. Live mode remains disabled until an operator completes registration and configures server credentials.
 
 ## Limitations and next work
 
 - The parser currently supports documented timestamp forms and a single-token service name. Unrecognized nonblank lines are reported but not interpreted.
 - Cause matching is keyword-based. It filters common negations and substring matches, but may miss synonyms or misunderstand complex language; it gives no numeric confidence score.
 - Investigation records and decision history are stored in memory and disappear when the server restarts. A deployment with multiple workers may not share these records. The fallback does not call an LLM and does not execute operational actions.
-- There is no live Switch integration. Implement one only after the actual hackathon requirements and verified documentation are available.
+- The live protocol client has mocked contract tests but has not been connected to a real Switch workspace. Registration profile compatibility and deployed operation schemas still need isolated-workspace verification. Only outbox entries that remain `pending` are resumed on startup; in-flight/ambiguous sends become `unknown` and require reconciliation, and definite failures are not retried automatically.
+- Investigation and decision records remain in memory; only Switch handoff, cursor, gaps, and inbound de-duplication state are stored in SQLite.
 - The in-process ASGI tests do not cover network-server behavior, browser rendering, or multi-worker operation.
 - Useful future work includes durable investigation history, richer log formats, rule configuration, and validation against labeled incidents.
