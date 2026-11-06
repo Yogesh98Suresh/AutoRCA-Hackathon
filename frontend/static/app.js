@@ -1,6 +1,9 @@
 const fileSelect = document.querySelector('#log-file');
 const form = document.querySelector('#analyze-form');
 const analyzeButton = document.querySelector('#analyze-button');
+const uploadInput = document.querySelector('#upload-log');
+const uploadButton = document.querySelector('#upload-button');
+const uploadStatus = document.querySelector('#upload-selected');
 const notice = document.querySelector('#notice');
 const incidentList = document.querySelector('#incident-list');
 const detailPanel = document.querySelector('#detail-panel');
@@ -9,9 +12,11 @@ let selectedService = null;
 let activeInvestigation = null;
 
 async function api(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
   const response = await fetch(path, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers,
   });
   const body = await response.json();
   if (!response.ok) throw new Error(body.detail || `Request failed (${response.status})`);
@@ -63,6 +68,27 @@ function updateMetrics(report) {
   setMetric('#metric-malformed', report.malformed_line_count ?? 0);
   setMetric('#metric-high', report.incidents.filter(item => item.severity === 'HIGH').length);
   document.querySelector('#incident-total').textContent = report.incident_count;
+}
+
+function displayAnalysis(report, successMessage = '') {
+  activeReport = report;
+  selectedService = null;
+  activeInvestigation = null;
+  updateMetrics(activeReport);
+  renderIncidents(activeReport);
+  if (activeReport.malformed_line_count) {
+    showNotice(`${activeReport.malformed_line_count} nonblank line(s) could not be parsed. Review them below.`);
+  } else {
+    showNotice(successMessage);
+  }
+  if (activeReport.malformed_lines?.length) {
+    const section = node('section', 'panel detail-content');
+    section.append(node('p', 'section-label', 'MALFORMED LOG ENTRIES'));
+    const list = node('div', 'malformed-list');
+    for (const item of activeReport.malformed_lines) list.append(node('div', '', `Line ${item.line_number}: ${item.content}`));
+    section.append(list);
+    detailPanel.append(section);
+  }
 }
 
 function renderIncidents(report) {
@@ -265,6 +291,46 @@ form.addEventListener('submit', async event => {
     }
   } catch (error) { showNotice(error.message); }
   finally { analyzeButton.disabled = false; analyzeButton.innerHTML = 'Analyze logs <span>↗</span>'; }
+});
+
+uploadInput.addEventListener('change', () => {
+  const file = uploadInput.files[0];
+  uploadStatus.textContent = file ? `Selected: ${file.name}` : 'No file selected.';
+  showNotice('');
+});
+
+uploadButton.addEventListener('click', async () => {
+  const file = uploadInput.files[0];
+  if (!file) { showNotice('Choose a .log file to upload.'); uploadInput.focus(); return; }
+  if (!file.name.toLowerCase().endsWith('.log')) { showNotice('Choose a file with a .log extension.'); uploadInput.focus(); return; }
+  const previousText = uploadButton.textContent;
+  const analyzeWasDisabled = analyzeButton.disabled;
+  let uploadSucceeded = false;
+  uploadButton.disabled = true;
+  analyzeButton.disabled = true;
+  uploadButton.textContent = 'Uploading…';
+  uploadStatus.textContent = `Uploading ${file.name} and analyzing…`;
+  showNotice('');
+  form.setAttribute('aria-busy', 'true');
+  try {
+    const data = new FormData();
+    data.append('file', file, file.name);
+    const result = await api('/upload', { method: 'POST', body: data });
+    fileSelect.add(new Option(`Uploaded: ${result.original_filename}`, result.filename));
+    fileSelect.value = result.filename;
+    uploadSucceeded = true;
+    analyzeButton.disabled = false;
+    displayAnalysis(result.report, `Uploaded and analyzed ${result.original_filename}.`);
+    uploadStatus.textContent = `Uploaded: ${result.original_filename}`;
+  } catch (error) {
+    uploadStatus.textContent = `Upload failed: ${file.name}`;
+    showNotice(error.message);
+  } finally {
+    uploadButton.disabled = false;
+    uploadButton.textContent = previousText;
+    if (!uploadSucceeded) analyzeButton.disabled = analyzeWasDisabled;
+    form.removeAttribute('aria-busy');
+  }
 });
 
 loadFiles().catch(error => showNotice(error.message));

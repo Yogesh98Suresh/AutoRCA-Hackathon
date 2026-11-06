@@ -4,8 +4,8 @@ import asyncio
 import json
 
 
-def request(app, method: str, path: str, body: dict | None = None):
-    request_body = json.dumps(body).encode("utf-8") if body is not None else b""
+def request(app, method: str, path: str, body: dict | bytes | None = None, content_type: str = "application/json"):
+    request_body = (body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")) if body is not None else b""
     request_delivered = False
     messages = []
     path_bytes = path.encode("ascii")
@@ -36,7 +36,7 @@ def request(app, method: str, path: str, body: dict | None = None):
         "root_path": "",
         "headers": [
             (b"host", b"testserver"),
-            (b"content-type", b"application/json"),
+            (b"content-type", content_type.encode("ascii")),
         ],
         "client": ("127.0.0.1", 12345),
         "server": ("testserver", 80),

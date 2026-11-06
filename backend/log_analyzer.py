@@ -14,6 +14,13 @@ LOG_LINE = re.compile(
     rf"^(?P<timestamp>{TIMESTAMP})\s+(?P<level>TRACE|DEBUG|INFO|WARN|WARNING|ERROR|CRITICAL|FATAL)\s+(?P<service>\S+)\s+(?P<message>.+)$",
     re.IGNORECASE,
 )
+APACHE_LOG_LINE = re.compile(
+    r"^\[(?P<timestamp>[^]\r\n]+)\]\s+\[(?P<level>[A-Za-z]+)\]\s+(?P<message>.+)$"
+)
+APACHE_LEVELS = {
+    "emerg": "CRITICAL", "alert": "CRITICAL", "crit": "CRITICAL",
+    "error": "ERROR", "warn": "WARN", "notice": "INFO", "info": "INFO", "debug": "DEBUG",
+}
 HIGH_SEVERITY_ERROR_THRESHOLD = 3
 MALFORMED_EXAMPLE_CHARS = 500
 
@@ -146,6 +153,7 @@ def analyze_logs(log_file: str) -> dict:
         raise LogFileTooLargeError(f"Log file exceeds the {MAX_LOG_FILE_BYTES}-byte limit")
 
     incidents = defaultdict(list)
+    parsed_level_counts = defaultdict(int)
     total_lines = 0
     malformed_lines = []
     malformed_line_count = 0
@@ -195,19 +203,35 @@ def analyze_logs(log_file: str) -> dict:
                 continue
             total_lines += 1
             match = LOG_LINE.match(line)
-            if not match:
+            apache_match = None if match else APACHE_LOG_LINE.match(line)
+            if not match and not apache_match:
                 record_malformed(line_number, line)
                 continue
 
-            timestamp = match.group("timestamp")
-            try:
-                datetime.fromisoformat(timestamp[:-1] + "+00:00" if timestamp.endswith("Z") else timestamp)
-            except ValueError:
-                record_malformed(line_number, line)
-                continue
-            level = match.group("level").upper()
-            service = match.group("service")
-            message = match.group("message")
+            if apache_match:
+                timestamp = apache_match.group("timestamp")
+                try:
+                    datetime.strptime(timestamp, "%a %b %d %H:%M:%S %Y")
+                except ValueError:
+                    record_malformed(line_number, line)
+                    continue
+                level = APACHE_LEVELS.get(apache_match.group("level").casefold())
+                if level is None:
+                    record_malformed(line_number, line)
+                    continue
+                service = "apache"
+                message = apache_match.group("message")
+            else:
+                timestamp = match.group("timestamp")
+                try:
+                    datetime.fromisoformat(timestamp[:-1] + "+00:00" if timestamp.endswith("Z") else timestamp)
+                except ValueError:
+                    record_malformed(line_number, line)
+                    continue
+                level = match.group("level").upper()
+                service = match.group("service")
+                message = match.group("message")
+            parsed_level_counts[level] += 1
             if level in ("ERROR", "CRITICAL", "FATAL"):
                 incidents[service].append({
                     "timestamp": timestamp,
@@ -244,6 +268,7 @@ def analyze_logs(log_file: str) -> dict:
         "malformed_line_count": malformed_line_count,
         "malformed_lines": malformed_lines,
         "malformed_lines_truncated": malformed_line_count > len(malformed_lines),
+        "parsed_level_counts": dict(sorted(parsed_level_counts.items())),
         "incident_count": len(results),
         "incidents": results,
     }

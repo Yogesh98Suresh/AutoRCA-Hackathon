@@ -33,6 +33,43 @@ class AnalyzeLogsTests(unittest.TestCase):
         self.assertEqual(report["incidents"][1]["errors"][0]["level"], "ERROR")
         self.assertEqual(report["incidents"][1]["severity"], "MEDIUM")
 
+    def test_apache_sample_maps_levels_groups_errors_and_preserves_evidence(self):
+        report = analyze_logs(str(PROJECT_ROOT / "data" / "apache_sample.log"))
+        self.assertEqual(report["total_lines_analyzed"], 10)
+        self.assertEqual(report["malformed_line_count"], 2)
+        self.assertEqual(report["parsed_level_counts"], {
+            "CRITICAL": 3, "ERROR": 2, "INFO": 2, "WARN": 1,
+        })
+        self.assertEqual(report["incident_count"], 1)
+        apache = report["incidents"][0]
+        self.assertEqual(apache["service"], "apache")
+        self.assertEqual(apache["severity"], "HIGH")
+        self.assertEqual(apache["error_count"], 5)
+        self.assertEqual(apache["errors"][0], {
+            "timestamp": "Mon Jan 05 12:00:03 2026",
+            "level": "ERROR",
+            "message": "mod_proxy: database connection timed out",
+        })
+        self.assertEqual(apache["errors"][-1]["level"], "CRITICAL")
+        self.assertIn("hypothesis", apache["possible_causes"][0]["basis"].lower())
+
+    def test_apache_levels_are_mapped_and_invalid_entries_are_malformed(self):
+        report = self.analyze_text(
+            "[Mon Jan 05 12:00:00 2026] [notice] Started\n"
+            "[Mon Jan 05 12:00:01 2026] [info] Ready\n"
+            "[Mon Jan 05 12:00:02 2026] [warn] Low disk warning\n"
+            "[Mon Jan 05 12:00:03 2026] [crit] Disk full\n"
+            "[Mon Jan 05 12:00:04 2026] [alert] Disk full\n"
+            "[Mon Jan 05 12:00:05 2026] [emerg] Disk full\n"
+            "[Not a date] [error] Invalid date\n"
+            "[Mon Jan 05 12:00:06 2026] [unknown] Invalid severity\n"
+        )
+        self.assertEqual(report["parsed_level_counts"], {
+            "CRITICAL": 3, "INFO": 2, "WARN": 1,
+        })
+        self.assertEqual(report["malformed_line_count"], 2)
+        self.assertEqual(report["incidents"][0]["errors"][0]["level"], "CRITICAL")
+
     def test_one_critical_entry_is_high_severity(self):
         report = self.analyze_text(
             "2026-11-01 10:00:01 CRITICAL billing Payment system unavailable\n"

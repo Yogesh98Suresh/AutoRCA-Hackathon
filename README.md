@@ -5,6 +5,8 @@ AutoRCA is a small, explainable system-log analysis demo for the WeMakeDevs **Fl
 ## Current features
 
 - Parses UTF-8 logs using timestamps in `YYYY-MM-DD HH:MM:SS` or ISO-style `YYYY-MM-DDTHH:MM:SS` form, with optional fractional seconds and timezone. Dates and times are validated, not only pattern-matched.
+- Also parses Apache error-log timestamps and levels. Apache events are grouped under `apache`; `notice`/`info` map to INFO, `warn` to WARN, `error` to ERROR, and `crit`/`alert`/`emerg` to CRITICAL. Root-cause output remains heuristic.
+- Accepts `.log` files from the dashboard, streams UTF-8 validation and storage under generated filenames, enforces `AUTORCA_MAX_LOG_BYTES`, and keeps at most 20 generated uploads.
 - Counts nonblank lines, reports malformed entries with their line numbers, and groups `ERROR`, `CRITICAL`, and `FATAL` events by service (`FATAL` is normalized to `CRITICAL`). Long lines are counted as malformed without being retained in full.
 - Limits the input file to 5 MiB by default, limits lines to 65,536 characters, and returns at most 100 malformed-line examples. The full malformed-line count is retained even when the example list is capped.
 - Labels an incident HIGH when it includes a CRITICAL event or at least three error events; otherwise it is MEDIUM. This is a demo heuristic, not a production incident assessment.
@@ -29,6 +31,7 @@ backend/
   switch_register.py   Explicit one-time operator registration command
 data/
   sample.log           Public demo log with database, auth, timeout, malformed cases
+  apache_sample.log    Synthetic Apache-format fixture authored for AutoRCA
 frontend/
   index.html           Dashboard structure
   static/app.js        Dashboard API calls and interactions
@@ -39,6 +42,7 @@ tests/
   test_api.py
   test_log_analyzer.py
   test_switch_integration.py  Mocked Switch HTTP/WebSocket and outbox tests
+  test_upload_api.py   Multipart upload validation, retention, and analysis tests
 ```
 
 ## Windows setup
@@ -118,7 +122,7 @@ cd C:\Users\HP\Desktop\AutoRCA-Hackathon
 \.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-The tests use Python's standard `unittest` and do not require `pytest` or `httpx`. API contract tests invoke the FastAPI ASGI app directly in-process, so they verify HTTP status codes, validation responses, and JSON without starting a server or opening a socket. They are not network-level tests.
+The tests use Python's standard `unittest`; install the declared `python-multipart` dependency from `requirements.txt` for upload parsing. Tests do not require `pytest` or `httpx`. API contract tests invoke the FastAPI ASGI app directly in-process, so they verify HTTP status codes, validation responses, and JSON without starting a server or opening a socket. They are not network-level tests.
 
 ## Demo walkthrough
 
@@ -129,9 +133,13 @@ The tests use Python's standard `unittest` and do not require `pytest` or `httpx
 5. Ask the local agent for an investigation plan, add a short human note, then approve, reject, or edit the checks.
 6. In the default mode, point out the **Switch: local mock only** label. Live mode remains disabled until an operator completes registration and configures server credentials.
 
+The source card also accepts a `.log` file from your computer. Choose a UTF-8 text file and select **Upload & analyze**; AutoRCA stores it under a generated name in `data/`, analyzes it immediately, and returns it for the existing investigation workflow. Only the newest 20 AutoRCA-generated uploads are retained. Cleanup never removes `sample.log` or unrelated files.
+
+The requested public Apache sample (`SoftManiaTech/sample_log_files/Apache/Apache_2k.log`) was downloaded and inspected. Its repository describes Loghub logs as freely accessible for research, and says some may be unmodified production data, but it does not clearly grant redistribution rights. AutoRCA therefore does not include that third-party file. `data/apache_sample.log` is a locally authored synthetic fixture using the observed Apache error-log syntax; its lines are not copied from that dataset. See the [Apache dataset README](https://github.com/SoftManiaTech/sample_log_files/tree/master/Apache) and [repository license statement](https://github.com/SoftManiaTech/sample_log_files#license).
+
 ## Limitations and next work
 
-- The parser currently supports documented timestamp forms and a single-token service name. Unrecognized nonblank lines are reported but not interpreted.
+- The parser supports the existing AutoRCA format and the Apache error-log format represented by the synthetic fixture. Other formats and unsupported levels are reported as malformed. INFO/WARN events are counted but do not create incidents.
 - Cause matching is keyword-based. It filters common negations and substring matches, but may miss synonyms or misunderstand complex language; it gives no numeric confidence score.
 - Investigation records and decision history are stored in memory and disappear when the server restarts. A deployment with multiple workers may not share these records. The fallback does not call an LLM and does not execute operational actions.
 - The live protocol client has mocked contract tests but has not been connected to a real Switch workspace. Registration profile compatibility and deployed operation schemas still need isolated-workspace verification. Only outbox entries that remain `pending` are resumed on startup; in-flight/ambiguous sends become `unknown` and require reconciliation, and definite failures are not retried automatically.

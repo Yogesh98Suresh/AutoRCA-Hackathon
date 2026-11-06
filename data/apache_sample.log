@@ -1,0 +1,10 @@
+[Mon Jan 05 12:00:00 2026] [notice] AH00094: Apache worker initialized
+[Mon Jan 05 12:00:01 2026] [info] Server ready to accept connections
+[Mon Jan 05 12:00:02 2026] [warn] AH00111: Configuration warning in demo mode
+[Mon Jan 05 12:00:03 2026] [error] mod_proxy: database connection timed out
+[Mon Jan 05 12:00:04 2026] [error] mod_proxy: database connection refused
+[Mon Jan 05 12:00:05 2026] [crit] child process exited unexpectedly
+[Mon Jan 05 12:00:06 2026] [alert] service restart required
+[Mon Jan 05 12:00:07 2026] [emerg] server cannot continue
+not an Apache error log entry
+[Mon Jan 05 12:00:08 2026] [unknown] unsupported level example

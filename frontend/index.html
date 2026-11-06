@@ -16,7 +16,7 @@
     <main>
       <section class="hero">
         <div><p class="eyebrow">SYSTEM HEALTH / LOG INTELLIGENCE</p><h1>Make sense of the noise.</h1><p class="hero-copy">Turn service logs into explainable incidents and a human-reviewed investigation plan.</p></div>
-        <form id="analyze-form" class="source-card"><label for="log-file">Log source</label><div class="source-row"><select id="log-file" required aria-label="Choose a log file"></select><button id="analyze-button" class="button primary" type="submit">Analyze logs <span>↗</span></button></div><p class="source-note">Choose a .log file from the local data folder.</p></form>
+        <form id="analyze-form" class="source-card"><label for="log-file">Analyze a saved log</label><div class="source-row"><select id="log-file" required aria-label="Choose a saved log file"></select><button id="analyze-button" class="button primary" type="submit">Analyze logs</button></div><p class="source-note">Select a sample or log already in AutoRCA.</p><div class="upload-divider" aria-hidden="true"><span>or upload from your computer</span></div><label for="upload-log">Upload a .log file</label><div class="upload-row"><input id="upload-log" type="file" accept=".log,text/plain" aria-describedby="upload-help upload-selected"><button id="upload-button" class="button outline-button" type="button">Upload &amp; analyze</button></div><p id="upload-help" class="source-note">UTF-8 text only. Maximum size follows AUTORCA_MAX_LOG_BYTES.</p><p id="upload-selected" class="upload-selected" role="status" aria-live="polite">No file selected.</p></form>
       </section>
       <div id="notice" class="notice" role="status" hidden></div>
       <section class="metrics" aria-label="Log summary">
